@@ -1,17 +1,8 @@
 import fitz
+import json
 from fuzzywuzzy import process
 
-def remove_special_character(text):
-    text = text.replace('#', '')
-    text = text.replace('_', '')
-    text = text.replace('-', '')
-    text = text.strip()
-    return text
-
-def fill_misspelled_fields(pdf_path, field_values):
-    """
-    Find keywords (even if misspelled) and insert the corresponding values dynamically.
-    """
+def fill_info_fields(pdf_path, field_values):
     doc = fitz.open(pdf_path)
     thai_font = "THSarabunNew.ttf"  
     
@@ -39,15 +30,6 @@ def fill_misspelled_fields(pdf_path, field_values):
 
     return doc
 
-def add_grades_to_pdf(doc, grades):
-    for page in doc:
-        for course_code, grade in grades.items():
-            text_instances = page.search_for(course_code)  
-            for inst in text_instances:
-                x, y, x1, y1 = inst  
-                page.insert_text((x1 + 10, y), grade, fontsize=12, color=(1, 0, 0))  
-
-    return doc
 
 
 pdf_path = "CourseInspectionForm2560.pdf"
@@ -60,8 +42,8 @@ fields_to_fill = {
 }
 
 
-# # Fill the fields and get the modified document
-modified_doc = fill_misspelled_fields(pdf_path, fields_to_fill)
+# Fill the fields and get the modified document
+modified_doc = fill_info_fields(pdf_path, fields_to_fill)
 
 # Save the modified PDF to a new file
 output_path = "temp.pdf"
