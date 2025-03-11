@@ -1,23 +1,123 @@
 import cv2
 import pytesseract
-import csv
-from matplotlib import pyplot as plt
+import json
+import numpy as np
+import fitz
+from fuzzywuzzy import process
 
-def fill_table(image, row_pos, columns_pos, table_data):
+def fill_info_fields(pdf_path, field_values):
+    doc = fitz.open(pdf_path)
+    thai_font = "THSarabunNew.ttf"  
+    
+    for page in doc:
+        page.insert_font(fontname="THSarabun", fontfile=thai_font)
+
+        text = page.get_text("text")
+
+        for keyword, value in field_values.items():
+            text_instances = page.search_for(keyword)
+            if not text_instances:
+                best_match = process.extractOne(keyword, text.split())  # Find closest match
+                if best_match and best_match[1] > 90:  # Ensure high similarity
+                    matched_text = best_match[0]
+                    print(matched_text)
+                    text_instances = page.search_for(matched_text)  # Find the location
+
+            if text_instances:
+                for inst in text_instances:
+                    x, y, x1, y1 = inst
+                    page.insert_text((x1 + 10, y + 10), value, fontname="THSarabun", fontsize=12, color=(1, 0, 0))  # Fill value in red
+                    
+    return doc
+
+
+def is_text_in_cell(image, x1, x2, y1, y2):
+    cell = image[y1:y2, x1:x2]  
+    threshold = (cell.shape[0] * cell.shape[1]) * 4.5 // 100
+    _, binary = cv2.threshold(cell, 200, 255, cv2.THRESH_BINARY)
+    non_white_pixels = np.sum(binary < 255)  
+    return non_white_pixels < threshold
+
+def what_text_in_cell(image, x1, x2, y1, y2):
+    cell = image[y1:y2, x1:x2]  
+    text = pytesseract.image_to_string(cell, lang="tha+eng", config="--psm 6")
+    return text
+
+
+def fill_table(image, row_pos, columns_pos, table_data, cnt):
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.5
-    thickness = 1
+    font_scale = 1.5
+    thickness = 2
+
+    # print((list(table_data))[cnt])
+    data = table_data[(list(table_data))[cnt]]
+    
+    cell_height = (row_pos[1][0] - row_pos[0][0]) // 2
 
     for row_idx, (y1, _) in enumerate(row_pos[:-1]):
+        if row_idx == 0:
+            continue
         for col_idx, (x1, _) in enumerate(columns_pos[:-1]):
-            position = (x1 + 5, y1 + 15)  # Adjust text position
+            position = (x1 + 10, y1 + cell_height + 10)
+            x2, y2 = columns_pos[col_idx + 1][0], row_pos[row_idx + 1][0]
+            if (row_idx - 1) > len(data) -1:
+                continue
+            if len(columns_pos) == 6:
+                temp = data[row_idx - 1]
+                fill_data = None
+                if col_idx == 0:
+                    if not is_text_in_cell(image, x1, x2, y1, y2):
+                        text = what_text_in_cell(image, x1, x2, y1, y2)
+                        if len(text) < 10:
+                            image[y1+10:y2-10, x1+10:x2-10] = (255)
+                        else:
+                            continue
+                            
+                    fill_data = str(temp['courseId'])
+                elif col_idx == 1:
+                    if not is_text_in_cell(image, x1, x2, y1, y2):
+                        continue
+                    fill_data = str(temp['courseName'])
+                elif col_idx == 2:
+                    if not is_text_in_cell(image, x1, x2, y1, y2):
+                        continue
+                    fill_data = str(temp['creditAmount'])
+                elif col_idx == 3:
+                    fill_data = str(temp['enrollmentDate'])
+                elif col_idx == 4:
+                    fill_data = str(temp['grade'])
 
-            # Put text in the image
-            cv2.putText(image, table_data, position, font, font_scale, (0, 0, 0), thickness)
+                # Put text in the image
+                cv2.putText(image, fill_data, position, font, font_scale, (0, 0, 0), thickness)
+            
+            elif len(columns_pos) == 7:
+                temp = data[row_idx - 1]
+                fill_data = None
+                if col_idx == 0:
+                    if not is_text_in_cell(image, x1, x2, y1, y2):
+                        continue
+                    fill_data = str(temp['courseId'])
+                elif col_idx == 1:
+                    if not is_text_in_cell(image, x1, x2, y1, y2):
+                        continue
+                    fill_data = str(temp['courseName'])
+                elif col_idx == 2:
+                    continue
+                elif col_idx == 3:
+                    if not is_text_in_cell(image, x1, x2, y1, y2):
+                        continue
+                    fill_data = str(temp['creditAmount'])
+                elif col_idx == 4:
+                    fill_data = str(temp['enrollmentDate'])
+                elif col_idx == 5:
+                    fill_data = str(temp['grade'])
+
+                # Put text in the image
+                cv2.putText(image, fill_data, position, font, font_scale, (0, 0, 0), thickness)
 
     return image
 
-def detect_tables(image):
+def detect_tables(image, data, second_page=0):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     _, binary = cv2.threshold(gray, 128, 255, cv2.THRESH_BINARY_INV)
     horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
@@ -42,7 +142,7 @@ def detect_tables(image):
                 table_pos.append((i -1, temp_v))
             temp_pos = 0
     
-
+    cnt = second_page
     for i in range(len(table_pos) - 1):
         temp_image = binary[table_pos[i][0]:table_pos[i + 1][0], :]
 
@@ -74,8 +174,6 @@ def detect_tables(image):
         if len(columns_pos) == 0:
             continue
 
-        print(len(columns_pos))
-
         # find rows
         horizontal_lines = cv2.morphologyEx(temp_image, cv2.MORPH_OPEN, horizontal_kernel, iterations=2)
         horizontal_hist = cv2.reduce(horizontal_lines, 1, cv2.REDUCE_AVG).flatten()
@@ -93,26 +191,68 @@ def detect_tables(image):
             if v == 0:
                 temp_pos = 0
 
-        for k in range(len(row_pos)):
-            temp_i, temp_v = row_pos[k]
-            cv2.circle(temp_image, (100, temp_i), 3, (255), 5)
-        
-        print(len(row_pos))
-
         filling_text_image = gray[table_pos[i][0]:table_pos[i + 1][0], :]
-        filling_text_image = fill_table(filling_text_image, columns_pos, row_pos, "hi")
+        filling_text_image = fill_table(filling_text_image, row_pos, columns_pos, data, cnt)
 
-        cv2.imshow('image', filling_text_image)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        gray[table_pos[i][0]:table_pos[i + 1][0], :] = filling_text_image
+        cnt += 1
 
-    # return table_bbox, table_mask
+    return gray
+
+
+pdf_path = "CourseInspectionForm2560.pdf"
+
+result = None
+with open('data.json', 'r') as file:
+    result = json.load(file)
+
+
+fields_to_fill = {
+    "ชื#อ-สกุล": result['thaiName'],
+    "รหัสนิสิต": result['studentId'],
+    "คะแนนเฉลี่ยสะสม": result['gpa'],
+    "หน่วยกิตรวม" : result['result']['totalCredit'],
+}
+
+
+# Fill the fields and get the modified document
+modified_doc = fill_info_fields(pdf_path, fields_to_fill)
+
+# Save the modified PDF to a new file
+output_path = "temp.pdf"
+modified_doc.save(output_path)
+
+# Close the document
+modified_doc.close()
+
+
+
+groups = {
+    "Wellness" : [],
+    "Entrepreneurship" : [],
+    "LanguageandCommunication" : [],
+    "ThaiCitizenandGlobalCitizen" : [],
+    "Aesthetics" : [],
+    "FacultyGECourses" : [],
+    "Coresubject" : [],
+    "RestrictedElective" : [],
+    "Elective" : [],
+    "Open Electives" : [],
+}
+
+for group in result['result']:
+    for subgroup in group['subGroups']:
+        courses = []
+        for course in subgroup['courses']:
+            courses.append(course)
+        
+        groups[subgroup['subGroupName']] = courses
+
 
 image_path = 'page_1.png'
 image = cv2.imread(image_path)
-detect_tables(image)
+page1 = detect_tables(image, groups)
 
-
-# text = ""
-# text = extract_from_image(image, table_bbox)
-# text  += extract_from_table(image_path, table_bbox, table_mask, table_pos)
+image_path = 'page_2.png'
+image = cv2.imread(image_path)
+page2 = detect_tables(image, groups, second_page=7)
