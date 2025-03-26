@@ -24,10 +24,7 @@ def fill_info_fields(pdf_path, field_values):
                 for inst in text_instances:
                     x, y, x1, y1 = inst
                     page.insert_text((x1 + 10, y + 10), value, fontname="THSarabun", fontsize=12, color=(1, 0, 0))  # Fill value in red
-                    print(f"✅ Found '{keyword}' at {inst}")
-            else:
-                print(f"❌ Could not locate '{keyword}' in PDF")
-
+                    
     return doc
 
 

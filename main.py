@@ -7,18 +7,18 @@ from pytesseract import Output
 from collections import defaultdict
 
 # Convert PDF to images (one image per page)
-images = convert_from_path("CourseInspectionForm2560.pdf", dpi=300)
+images = convert_from_path("6310451413.pdf", dpi=300)
 
 # Process each page
 for i, image in enumerate(images):
-    image_path = f"page_{i+1}.png"
+    image_path = f"transcript_{i+1}.png"
     image.save(image_path, "PNG")
     print(f"Saved: {image_path}")
 
     # Extract text using Tesseract (Thai + English)
-    text = pytesseract.image_to_string(image, lang="tha+eng")
+    # text = pytesseract.image_to_string(image, lang="tha+eng")
     
-    print(f"Text from page {i+1}:\n{text}\n{'-'*50}")
+    # print(f"Text from page {i+1}:\n{text}\n{'-'*50}")
 
 # # image = Image.open('page_1.png')
 # image = cv2.imread('page_1.png')
